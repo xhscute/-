@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>温馨祝福弹幕</title>
+<style>
+  body {
+    margin: 0;
+    overflow: hidden;
+    background: linear-gradient(135deg, #fffaf0, #f0ffff);
+    height: 100vh;
+    font-family: "微软雅黑", sans-serif;
+  }
+
+  .popup {
+    position: absolute;
+    padding: 8px 16px;
+    border-radius: 20px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    color: #333;
+    font-size: 14px;
+    animation: floatUp 4s linear forwards;
+    opacity: 0;
+  }
+
+  @keyframes floatUp {
+    0% { transform: translateY(0); opacity: 1; }
+    100% { transform: translateY(-120px); opacity: 0; }
+  }
+</style>
+</head>
+<body>
+
+<script>
+const tips = [
+  "日子慢慢走，温柔总会不期而遇。",
+  "今天的风里，藏着甜甜的好运哦。",
+  "累了就歇会儿，阳光会等你的。",
+  "每一份坚持，都在悄悄靠近美好。",
+  "别着急，属于你的光终会照亮你。",
+  "好好吃饭，好好生活，就是幸福。",
+  "夜晚的星星，是为你点亮的小灯。",
+  "今天的你，也在努力发光呀。",
+  "烦恼会过去，快乐会如期而至。",
+  "给自己一个微笑，今天会更好。"
+];
+
+const colors = ["#FFEEEE", "#EEFFEE", "#EEEEFF", "#FFFFEE", "#E0FFFF", "#FFE4E1", "#F0FFF0"];
+
+function createPopup() {
+  const popup = document.createElement("div");
+  popup.className = "popup";
+  popup.innerText = tips[Math.floor(Math.random() * tips.length)];
+  popup.style.left = Math.random() * (window.innerWidth - 200) + "px";
+  popup.style.top = Math.random() * (window.innerHeight - 100) + "px";
+  popup.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+
+  document.body.appendChild(popup);
+  setTimeout(() => popup.remove(), 4000);
+}
+
+// 每隔 300 毫秒生成一个（原来是600ms）
+setInterval(createPopup, 300);
+</script>
+
+</body>
+</html>
