@@ -8,10 +8,12 @@
         body { margin: 0; overflow: hidden; background: #000; }
         canvas { display: block; }
         #video { position: absolute; top: 0; left: 0; width: 320px; height: 240px; opacity: 0.3; z-index: 1; }
+        #error { position: absolute; top: 10px; right: 10px; color: red; z-index: 2; font-family: Arial; }
     </style>
 </head>
 <body>
-    <video id="video" autoplay playsinline></video>
+    <video id="video" autoplay muted playsinline></video>
+    <div id="error"></div>
     <canvas id="canvas"></canvas>
 
     <script src="https://unpkg.com/three@0.158.0/build/three.min.js"></script>
@@ -22,10 +24,11 @@
 
     <script>
         const videoElement = document.getElementById('video');
+        const errorDiv = document.getElementById('error');
         const canvasElement = document.getElementById('canvas');
-        const canvas = new THREE.WebGLRenderer({ canvas: canvasElement, antialias: true });
-        canvas.setSize(window.innerWidth, window.innerHeight);
-        canvas.setClearColor(0x000011);
+        const renderer = new THREE.WebGLRenderer({ canvas: canvasElement, antialias: true }); // 改名为renderer，避免拼写错误
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setClearColor(0x000011);
 
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -126,15 +129,30 @@
         });
         hands.onResults(onResults);
 
-        const camera = new Camera(videoElement, {
-            onFrame: async () => {
-                await hands.send({image: videoElement});
-            },
-            width: 640,
-            height: 480
-        });
-        camera.start();
+        // 手动请求摄像头权限（强制弹出请求，针对安卓黑屏问题）
+        async function requestCameraPermission() {
+            try {
+                // 显式调用getUserMedia，指定前置摄像头（user），并处理HTTPS/localhost
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        width: { ideal: 640 },
+                        height: { ideal: 480 },
+                        facingMode: 'user' // 前置摄像头，适合手势
+                    }
+                });
+                videoElement.srcObject = stream;
+                videoElement.play(); // 确保播放
+                console.log('摄像头权限已授予，视频流启动');
+                errorDiv.textContent = ''; // 清空错误
+                return true;
+            } catch (err) {
+                console.error('摄像头权限错误:', err);
+                errorDiv.textContent = `摄像头访问失败: \( {err.name} - \){err.message}. 请检查权限并刷新。`;
+                return false;
+            }
+        }
 
+        let cameraStarted = false;
         function onResults(results) {
             if (results.multiHandLandmarks) {
                 let gesture = 0;
@@ -178,6 +196,26 @@
                 scale = Math.max(0.5, Math.min(2.0, scale));
             }
         }
+
+        // 初始化：先手动请求权限，再启动MediaPipe Camera
+        async function initCamera() {
+            const hasPermission = await requestCameraPermission();
+            if (hasPermission && !cameraStarted) {
+                const mpCamera = new Camera(videoElement, {
+                    onFrame: async () => {
+                        await hands.send({image: videoElement});
+                    },
+                    width: 640,
+                    height: 480
+                });
+                mpCamera.start();
+                cameraStarted = true;
+                console.log('MediaPipe Camera 已启动');
+            }
+        }
+
+        // 页面加载后立即初始化
+        window.addEventListener('load', initCamera);
 
         // 渲染循环
         function animate() {
