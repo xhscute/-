@@ -30,74 +30,82 @@
         const debugDiv = document.getElementById('debug');
         const canvasElement = document.getElementById('canvas');
 
-        // WebGL检查
-        if (!window.WebGLRenderingContext || !canvasElement.getContext('webgl')) {
-            errorDiv.textContent = 'WebGL不支持！试试更新Chrome或用Firefox。';
+        // WebGL检查 & 强制WebGL1（安卓Chrome WebGL2 bug修复）
+        const gl = canvasElement.getContext('webgl', { alpha: false }); // WebGL1
+        if (!gl) {
+            errorDiv.textContent = 'WebGL1不支持！更新浏览器。';
         }
 
         const renderer = new THREE.WebGLRenderer({ 
             canvas: canvasElement, 
-            antialias: false, // 安卓关抗锯齿，提升性能
-            powerPreference: 'high-performance' // 优先高性能GPU
+            context: gl, // 强制用WebGL1上下文
+            antialias: false,
+            powerPreference: 'high-performance'
         });
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // 关键：设置像素比，修复高DPI安卓粒子不可见
-        renderer.setClearColor(0x000011); // 恢复深蓝星空背景
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // 降到1.5，防高DPI粒子缩水
+        renderer.setClearColor(0x000011); // 深蓝星空
 
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.z = 20; // 进一步拉近相机，确保粒子可见
+        camera.position.z = 15; // 拉近，确保视锥覆盖
 
-        // 粒子数量（安卓减到3000防卡）
-        const particleCount = 3000;
+        // 测试盒子：红色立方体，确认渲染
+        const boxGeometry = new THREE.BoxGeometry(8, 8, 8);
+        const boxMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+        const box = new THREE.Mesh(boxGeometry, boxMaterial);
+        box.position.set(0, 0, -5); // 放相机前
+        scene.add(box);
+
+        // 粒子（巨型，位置全相机前）
+        const particleCount = 2000; // 再减，防内存
         const positions = new Float32Array(particleCount * 3);
         const velocities = new Float32Array(particleCount * 3);
         const geometry = new THREE.BufferGeometry();
         const material = new THREE.PointsMaterial({
-            color: 0xffffff, // 恢复白色粒子
-            size: 5.0, // 进一步加大size，安卓高DPI可见
-            sizeAttenuation: false, // 关键：禁用距离衰减，粒子大小恒定，不随距离缩小
+            color: 0xffffff,
+            size: 10.0, // 超大size
+            sizeAttenuation: false, // 恒定大小
             transparent: true,
-            opacity: 1.0, // 全不透明
-            blending: THREE.NormalBlending // 临时改正常混合，避开Additive在安卓的渲染bug（测试后可换回）
+            opacity: 0.9,
+            blending: THREE.AdditiveBlending // 辉光效果
         });
         const particles = new THREE.Points(geometry, material);
         scene.add(particles);
 
-        // 初始化粒子为星空（缩小范围，更集中）
+        // 初始化粒子（z全负，确保相机前）
         for (let i = 0; i < particleCount; i++) {
-            positions[i * 3] = (Math.random() - 0.5) * 60; // 进一步缩小范围
-            positions[i * 3 + 1] = (Math.random() - 0.5) * 60;
-            positions[i * 3 + 2] = (Math.random() - 0.5) * 60;
+            positions[i * 3] = (Math.random() - 0.5) * 40;
+            positions[i * 3 + 1] = (Math.random() - 0.5) * 40;
+            positions[i * 3 + 2] = -10 - Math.random() * 20; // z: -10 to -30
             velocities[i * 3] = (Math.random() - 0.5) * 0.1;
             velocities[i * 3 + 1] = (Math.random() - 0.5) * 0.1;
-            velocities[i * 3 + 2] = (Math.random() - 0.5) * 0.1;
+            velocities[i * 3 + 2] = (Math.random() - 0.5) * 0.05; // z慢点
         }
         geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
 
-        // 文字点云生成函数（简易字体点采样）- 优化中文字体渲染
+        // 文字点云（调整z负）
         function generateTextPoints(text, count) {
             const canvas = document.createElement('canvas');
             canvas.width = 512; canvas.height = 128;
             const ctx = canvas.getContext('2d');
             ctx.fillStyle = '#fff';
-            ctx.font = 'bold 60px "Microsoft YaHei", Arial'; // 支持中文字体
+            ctx.font = 'bold 60px "Microsoft YaHei", Arial';
             ctx.textBaseline = 'middle';
             ctx.fillText(text, 10, 64);
             const imageData = ctx.getImageData(0, 0, 512, 128);
             const points = [];
             for (let i = 0; i < imageData.data.length; i += 4) {
                 if (imageData.data[i + 3] > 128) {
-                    const x = (i / 4 % 512 - 256) / 8; // 调整缩放，更紧凑
+                    const x = (i / 4 % 512 - 256) / 8;
                     const y = -(Math.floor(i / 4 / 512) * 128 - 64) / 8;
-                    points.push(new THREE.Vector3(x, y, 0));
+                    points.push(new THREE.Vector3(x, y, -15)); // z=-15
                 }
             }
-            // 扩展到count点
             const textPoints = [];
             while (textPoints.length < count) {
                 const p = points[Math.floor(Math.random() * points.length)].clone();
-                p.multiplyScalar(0.6 + Math.random() * 0.3); // 调整大小
+                p.multiplyScalar(0.6 + Math.random() * 0.3);
                 textPoints.push(p);
             }
             return textPoints.slice(0, count);
@@ -108,11 +116,10 @@
             2: generateTextPoints('小时', particleCount),
             3: generateTextPoints('岁岁如嘉所愿', particleCount)
         };
-        let targetPoints = texts[0]; // 默认
+        let targetPoints = texts[0];
         let currentGesture = 0;
-        let scale = 1.0; // 张合缩放
+        let scale = 1.0;
 
-        // 平滑过渡
         const lerpFactor = 0.05;
         function updateParticles() {
             const pos = geometry.attributes.position.array;
@@ -122,20 +129,19 @@
                 pos[i * 3 + 1] += (target.y - pos[i * 3 + 1]) * lerpFactor;
                 pos[i * 3 + 2] += (target.z - pos[i * 3 + 2]) * lerpFactor;
 
-                // 星空轻微漂移
                 if (currentGesture === 0) {
                     pos[i * 3] += velocities[i * 3];
                     pos[i * 3 + 1] += velocities[i * 3 + 1];
                     pos[i * 3 + 2] += velocities[i * 3 + 2];
-                    if (Math.abs(pos[i * 3]) > 30) velocities[i * 3] *= -1;
-                    if (Math.abs(pos[i * 3 + 1]) > 30) velocities[i * 3 + 1] *= -1;
-                    if (Math.abs(pos[i * 3 + 2]) > 30) velocities[i * 3 + 2] *= -1;
+                    if (Math.abs(pos[i * 3]) > 20) velocities[i * 3] *= -1;
+                    if (Math.abs(pos[i * 3 + 1]) > 20) velocities[i * 3 + 1] *= -1;
+                    if (Math.abs(pos[i * 3 + 2] + 20) > 10) velocities[i * 3 + 2] *= -1;
                 }
             }
             geometry.attributes.position.needsUpdate = true;
         }
 
-        // MediaPipe Hands
+        // MediaPipe部分不变（摄像头、手势）
         const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
         hands.setOptions({
             maxNumHands: 2,
@@ -145,25 +151,23 @@
         });
         hands.onResults(onResults);
 
-        // 手动请求摄像头权限（强制弹出请求，针对安卓黑屏问题）
         async function requestCameraPermission() {
             try {
-                // 显式调用getUserMedia，指定前置摄像头（user），并处理HTTPS/localhost
                 const stream = await navigator.mediaDevices.getUserMedia({
                     video: {
                         width: { ideal: 640 },
                         height: { ideal: 480 },
-                        facingMode: 'user' // 前置摄像头，适合手势
+                        facingMode: 'user'
                     }
                 });
                 videoElement.srcObject = stream;
-                videoElement.play(); // 确保播放
-                console.log('摄像头权限已授予，视频流启动');
-                errorDiv.textContent = ''; // 清空错误
+                videoElement.play();
+                console.log('摄像头启动');
+                errorDiv.textContent = '';
                 return true;
             } catch (err) {
-                console.error('摄像头权限错误:', err);
-                errorDiv.textContent = `摄像头访问失败: \( {err.name} - \){err.message}. 请检查权限并刷新。`;
+                console.error('摄像头错误:', err);
+                errorDiv.textContent = `摄像头失败: ${err.name}`;
                 return false;
             }
         }
@@ -174,27 +178,24 @@
                 let gesture = 0;
                 let openness = 0;
 
-                results.multiHandLandmarks.forEach((landmarks, handIndex) => {
-                    // 手指张开度（拇指到小指距离）
-                    const thumb = landmarks[4]; // 拇指尖
-                    const pinky = landmarks[20]; // 小指尖
+                results.multiHandLandmarks.forEach((landmarks) => {
+                    const thumb = landmarks[4];
+                    const pinky = landmarks[20];
                     const handOpenness = Math.sqrt(
                         Math.pow(thumb.x - pinky.x, 2) + Math.pow(thumb.y - pinky.y, 2)
                     );
                     openness += handOpenness;
 
-                    // 手势检测（简化：基于手指伸直计数）
                     let fingerCount = 0;
                     const fingers = [
-                        { tip: 8, pip: 6 }, // 食指
-                        { tip: 12, pip: 10 }, // 中指
-                        { tip: 16, pip: 14 }, // 无名指
-                        { tip: 20, pip: 18 }  // 小指
+                        { tip: 8, pip: 6 },
+                        { tip: 12, pip: 10 },
+                        { tip: 16, pip: 14 },
+                        { tip: 20, pip: 18 }
                     ];
                     fingers.forEach(f => {
-                        if (landmarks[f.tip].y < landmarks[f.pip].y) fingerCount++; // 伸直判断
+                        if (landmarks[f.tip].y < landmarks[f.pip].y) fingerCount++;
                     });
-                    // 拇指：x > wrist x
                     if (landmarks[4].x > landmarks[0].x) fingerCount++;
 
                     if (fingerCount === 1) gesture = Math.max(gesture, 1);
@@ -207,13 +208,10 @@
                     if (gesture > 0) targetPoints = texts[gesture];
                 }
 
-                // 张合：平均张开度映射到scale 0.5-2.0
-                scale = 0.5 + (openness / 2) * 1.5; // 假设最大openness~0.5
-                scale = Math.max(0.5, Math.min(2.0, scale));
+                scale = Math.max(0.5, Math.min(2.0, 0.5 + (openness / 2) * 1.5));
             }
         }
 
-        // 初始化：先手动请求权限，再启动MediaPipe Camera
         async function initCamera() {
             const hasPermission = await requestCameraPermission();
             if (hasPermission && !cameraStarted) {
@@ -226,24 +224,22 @@
                 });
                 mpCamera.start();
                 cameraStarted = true;
-                console.log('MediaPipe Camera 已启动');
             }
         }
 
-        // 页面加载后立即初始化
         window.addEventListener('load', initCamera);
 
-        // 渲染循环（加调试日志）
         function animate() {
             requestAnimationFrame(animate);
             updateParticles();
+            box.rotation.x += 0.01; // 盒子旋转，易观察
+            box.rotation.y += 0.01;
             particles.rotation.y += 0.001;
-            camera.position.z = 20 + Math.sin(Date.now() * 0.001) * 3; // 轻微相机运动，范围小
+            camera.position.z = 15 + Math.sin(Date.now() * 0.001) * 2;
             renderer.render(scene, camera);
-            // 调试：每秒log一次渲染info
             if (Date.now() % 1000 < 16) {
-                console.log('渲染中... 绘制调用:', renderer.info.render.calls, '像素比:', renderer.getPixelRatio());
-                debugDiv.textContent = `粒子: \( {particleCount} | 帧率: ~60 | WebGL: \){renderer.capabilities.isWebGL2 ? '2' : '1'} | 像素比: ${renderer.getPixelRatio()}`;
+                console.log('渲染: calls=', renderer.info.render.calls, 'pixelRatio=', renderer.getPixelRatio());
+                debugDiv.textContent = `粒子: \( {particleCount} | WebGL: 1 | 像素比: \){renderer.getPixelRatio().toFixed(1)} | 盒子测试: 可见?`;
             }
         }
         animate();
@@ -252,7 +248,7 @@
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
         });
     </script>
 </body>
