@@ -1,378 +1,199 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8" />
-  <title>Three.js + MediaPipe 实时交互 3D 粒子系统</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-  <style>
-    html,body { height:100%; margin:0; background:#050505; color:#fff; font-family: sans-serif; }
-    #container { width:100%; height:100%; position:relative; overflow:hidden; }
-    canvas { display:block; }
-    #ui {
-      position: absolute; left: 12px; top: 12px;
-      background: rgba(0,0,0,0.45); padding:10px; border-radius:8px; font-size:14px;
-      backdrop-filter: blur(4px);
-    }
-    #videoElement { display:none; } /* 摄像头隐藏 */
-    .hint { opacity:0.85; margin-top:6px; font-size:13px; color:#ddd; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D星空粒子交互系统</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; }
+        canvas { display: block; }
+        #video { position: absolute; top: 0; left: 0; width: 320px; height: 240px; opacity: 0.3; z-index: 1; }
+    </style>
 </head>
 <body>
-  <div id="container"></div>
-  <div id="ui">
-    <div>Three.js + MediaPipe 粒子交互 Demo</div>
-    <div class="hint">双手张合控制收缩/扩散。单手或双手都可探测。</div>
-    <div class="hint">显示文字由手势（伸出手指数量）切换：1→小艺 2→Hello！ 3→biu~</div>
-    <div id="status" class="hint">正在初始化...</div>
-  </div>
+    <video id="video" autoplay playsinline></video>
+    <canvas id="canvas"></canvas>
 
-  <!-- 摄像头视频（隐藏） -->
-  <video id="videoElement" playsinline></video>
+    <script src="https://unpkg.com/three@0.158.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 
-  <!-- CDN 库 -->
-  <script src="https://unpkg.com/three@0.150.1/build/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script>
+        const videoElement = document.getElementById('video');
+        const canvasElement = document.getElementById('canvas');
+        const canvas = new THREE.WebGLRenderer({ canvas: canvasElement, antialias: true });
+        canvas.setSize(window.innerWidth, window.innerHeight);
+        canvas.setClearColor(0x000011);
 
-  <script>
-  (async ()=>{
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.z = 50;
 
-    const container = document.getElementById('container');
-    const statusEl = document.getElementById('status');
+        // 粒子数量
+        const particleCount = 5000;
+        const positions = new Float32Array(particleCount * 3);
+        const velocities = new Float32Array(particleCount * 3);
+        const geometry = new THREE.BufferGeometry();
+        const material = new THREE.PointsMaterial({
+            color: 0xffffff,
+            size: 0.5,
+            transparent: true,
+            opacity: 0.8,
+            blending: THREE.AdditiveBlending
+        });
+        const particles = new THREE.Points(geometry, material);
+        scene.add(particles);
 
-    // ---------- Three.js 初始化 ----------
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 2000);
-    camera.position.set(0, 0, 600);
-
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    container.appendChild(renderer.domElement);
-
-    window.addEventListener('resize', ()=>{
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
-    });
-
-    // 粒子参数
-    const PARTICLE_COUNT = 6000; // 可调整
-    const particlePositions = new Float32Array(PARTICLE_COUNT * 3);
-    const particleTargetPositions = new Float32Array(PARTICLE_COUNT * 3);
-    const particleVelocity = new Float32Array(PARTICLE_COUNT * 3);
-
-    // 初始化随机分布（球形带噪声）
-    function initRandomPositions() {
-      for (let i = 0; i < PARTICLE_COUNT; i++) {
-        const phi = Math.acos(2*Math.random()-1);
-        const theta = 2*Math.PI*Math.random();
-        const r = 200 + 80 * (Math.random()-0.5);
-        const x = r * Math.sin(phi) * Math.cos(theta);
-        const y = r * Math.sin(phi) * Math.sin(theta);
-        const z = r * Math.cos(phi);
-        particlePositions[3*i] = x;
-        particlePositions[3*i+1] = y;
-        particlePositions[3*i+2] = z;
-
-        particleTargetPositions[3*i] = x;
-        particleTargetPositions[3*i+1] = y;
-        particleTargetPositions[3*i+2] = z;
-
-        particleVelocity[3*i] = particleVelocity[3*i+1] = particleVelocity[3*i+2] = 0;
-      }
-    }
-    initRandomPositions();
-
-    // Geometry & Material (Points)
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3).setUsage(THREE.DynamicDrawUsage));
-    const sizes = new Float32Array(PARTICLE_COUNT);
-    for (let i=0;i<PARTICLE_COUNT;i++) sizes[i] = 2 + Math.random()*1.5;
-    geometry.setAttribute('size', new THREE.BufferAttribute(sizes,1));
-
-    const material = new THREE.PointsMaterial({
-      size: 3.0,
-      sizeAttenuation: true,
-      color: 0x88ccff,
-      transparent: true,
-      opacity: 0.9,
-      depthTest: true,
-      depthWrite: false
-    });
-    const points = new THREE.Points(geometry, material);
-    scene.add(points);
-
-    // ------------- 文本到点的生成（离屏 canvas 取样） -------------
-    const textCanvas = document.createElement('canvas');
-    const tctx = textCanvas.getContext('2d');
-
-    function generatePointsFromText(text, scale=2.2, density=6) {
-      // 制作合适大小的画布
-      const w = 512, h = 256;
-      textCanvas.width = w;
-      textCanvas.height = h;
-      tctx.clearRect(0,0,w,h);
-      // 背景黑，文字白
-      tctx.fillStyle = 'black';
-      tctx.fillRect(0,0,w,h);
-      // 使用大号字体，支持中文
-      tctx.fillStyle = 'white';
-      const fontSize = Math.floor(h * 0.7);
-      tctx.font = `${fontSize}px "Noto Sans SC", "Microsoft YaHei", sans-serif`;
-      tctx.textAlign = 'center';
-      tctx.textBaseline = 'middle';
-      tctx.fillText(text, w/2, h/2);
-
-      // 采样像素点
-      const imgData = tctx.getImageData(0,0,w,h).data;
-      const points = [];
-      for (let y=0; y<h; y+=density) {
-        for (let x=0; x<w; x+=density) {
-          const idx = (y*w + x) * 4;
-          const a = imgData[idx+0]; // 白色为 255
-          if (a > 128) {
-            // 将文本坐标映射到三维平面上
-            const nx = (x - w/2) * scale;
-            const ny = -(y - h/2) * scale;
-            const nz = (Math.random()-0.5) * 10;
-            points.push([nx, ny, nz]);
-          }
+        // 初始化粒子为星空
+        for (let i = 0; i < particleCount; i++) {
+            positions[i * 3] = (Math.random() - 0.5) * 200;
+            positions[i * 3 + 1] = (Math.random() - 0.5) * 200;
+            positions[i * 3 + 2] = (Math.random() - 0.5) * 200;
+            velocities[i * 3] = (Math.random() - 0.5) * 0.1;
+            velocities[i * 3 + 1] = (Math.random() - 0.5) * 0.1;
+            velocities[i * 3 + 2] = (Math.random() - 0.5) * 0.1;
         }
-      }
-      return points;
-    }
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
 
-    // ------------- 粒子目标分配 -------------
-    // 当转换到文本时，将部分或全部粒子映射到文本点集合（通过循环复用）
-    function setParticlesToPoints(pointsArray) {
-      // pointsArray: [[x,y,z], ...]
-      const L = pointsArray.length;
-      for (let i = 0; i < PARTICLE_COUNT; i++) {
-        const p = pointsArray[i % L];
-        const j = 3*i;
-        // 随机带一点抖动，使排列更自然
-        particleTargetPositions[j] = p[0] + (Math.random()-0.5)*6;
-        particleTargetPositions[j+1] = p[1] + (Math.random()-0.5)*6;
-        particleTargetPositions[j+2] = p[2] + (Math.random()-0.5)*30;
-      }
-    }
-
-    // ------------- 过渡到随机云（用于扩散/收缩时的基态） -------------
-    function setParticlesToCloud(scale=1.0) {
-      for (let i=0;i<PARTICLE_COUNT;i++){
-        const j = 3*i;
-        const phi = Math.acos(2*Math.random()-1);
-        const theta = 2*Math.PI*Math.random();
-        const r = 220 * scale * (0.6 + Math.random()*0.9);
-        particleTargetPositions[j] = r * Math.sin(phi) * Math.cos(theta);
-        particleTargetPositions[j+1] = r * Math.sin(phi) * Math.sin(theta);
-        particleTargetPositions[j+2] = r * Math.cos(phi);
-      }
-    }
-
-    // ------------- 手势 / 控制 -------------
-    let currentGesture = 0; // 0: 无，1,2,3
-    let desiredText = null;
-    let expansionFactor = 0; // 收缩/扩散因子 (0..1.. >1)
-    let lastHands = []; // 存储最后检测到的手信息
-
-    function updateTextByGesture(gestureNum) {
-      if (gestureNum === 1) desiredText = '小艺';
-      else if (gestureNum === 2) desiredText = 'Hello！';
-      else if (gestureNum === 3) desiredText = 'biu~';
-      else desiredText = null;
-      statusEl.innerText = desiredText ? `当前文字: ${desiredText}（手势 ${gestureNum}）` : '未识别到手势或手势非 1/2/3';
-      if (desiredText) {
-        const pts = generatePointsFromText(desiredText, 2.6, 5); // 可调整 scale/density
-        setParticlesToPoints(pts);
-      } else {
-        setParticlesToCloud(1.0);
-      }
-    }
-
-    // finger counting (simple heuristic)
-    function countFingersFromLandmarks(landmarks) {
-      // landmarks is an array of 21 points {x,y,z}
-      // Return number of fingers extended (thumb handled approximately)
-      // Tip indices: thumb(4), index(8), middle(12), ring(16), pinky(20)
-      if (!landmarks || landmarks.length < 21) return 0;
-
-      // Helper: compare tip vs pip (y axis) — note MediaPipe coords: y increases downward (0 top)
-      function isFingerUp(tipIdx, pipIdx) {
-        return landmarks[tipIdx].y < landmarks[pipIdx].y; // tip higher than pip -> extended
-      }
-      let count = 0;
-      // index, middle, ring, pinky
-      if (isFingerUp(8, 6)) count++;
-      if (isFingerUp(12, 10)) count++;
-      if (isFingerUp(16, 14)) count++;
-      if (isFingerUp(20, 18)) count++;
-
-      // thumb: compare tip x relative to index_mcp x (handedness matters)
-      // We'll approximate: if thumb tip x is farther from palm center than thumb ip, treat as extended
-      const thumbExtended = Math.abs(landmarks[4].x - landmarks[2].x) > 0.03;
-      if (thumbExtended) {
-        // Only count thumb if clearly away
-        count++;
-      }
-      return count;
-    }
-
-    // ------------- MediaPipe Hands 初始化 -------------
-    const videoElement = document.getElementById('videoElement');
-
-    const hands = new Hands({
-      locateFile: (file) => {
-        // 引用 CDN 的文件
-        return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-      }
-    });
-
-    hands.setOptions({
-      maxNumHands: 2,
-      modelComplexity: 1,
-      minDetectionConfidence: 0.6,
-      minTrackingConfidence: 0.6
-    });
-
-    hands.onResults(onHandsResults);
-
-    // 摄像头设置（MediaPipe camera utils）
-    const camera = new Camera(videoElement, {
-      onFrame: async () => { await hands.send({image: videoElement}); },
-      width: 640,
-      height: 480
-    });
-
-    try {
-      await camera.start();
-      statusEl.innerText = '摄像头已启动，等待手部检测...';
-    } catch (e) {
-      statusEl.innerText = '摄像头启动失败：' + e.message;
-      console.error(e);
-    }
-
-    function onHandsResults(results) {
-      // results.multiHandLandmarks: array of landmarks
-      // results.multiHandedness: left/right
-      lastHands = results.multiHandLandmarks || [];
-
-      // 手指计数：优先使用检测到的单只手的手指数（若有两只手，我们以右手或第一只为准检测手势数字）
-      let gestureCount = 0;
-      if (lastHands.length >= 1) {
-        // choose first hand as primary
-        gestureCount = countFingersFromLandmarks(lastHands[0]);
-      }
-
-      // 规范化 gestureCount 为 0..5，但我们只关心 1/2/3（若出来如4/5则不切换文本）
-      if ([1,2,3].includes(gestureCount)) {
-        if (gestureCount !== currentGesture) {
-          currentGesture = gestureCount;
-          updateTextByGesture(currentGesture);
+        // 文字点云生成函数（简易字体点采样）
+        function generateTextPoints(text, count) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512; canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 60px Arial';
+            ctx.fillText(text, 10, 60);
+            const imageData = ctx.getImageData(0, 0, 512, 128);
+            const points = [];
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                if (imageData.data[i + 3] > 128) {
+                    const x = (i / 4 % 512 - 256) / 4;
+                    const y = -(Math.floor(i / 4 / 512) * 128 - 64) / 4;
+                    points.push(new THREE.Vector3(x, y, 0));
+                }
+            }
+            // 扩展到count点
+            const textPoints = [];
+            while (textPoints.length < count) {
+                const p = points[Math.floor(Math.random() * points.length)].clone();
+                p.multiplyScalar(0.8 + Math.random() * 0.4);
+                textPoints.push(p);
+            }
+            return textPoints.slice(0, count);
         }
-      } else {
-        // 非 1/2/3 时取消文字（回到云态）
-        if (currentGesture !== 0) {
-          currentGesture = 0;
-          updateTextByGesture(0);
+
+        const texts = {
+            1: generateTextPoints('小艺', particleCount),
+            2: generateTextPoints('小时', particleCount),
+            3: generateTextPoints('岁岁如嘉所愿', particleCount)
+        };
+        let targetPoints = texts[0]; // 默认
+        let currentGesture = 0;
+        let scale = 1.0; // 张合缩放
+
+        // 平滑过渡
+        const lerpFactor = 0.05;
+        function updateParticles() {
+            const pos = geometry.attributes.position.array;
+            for (let i = 0; i < particleCount; i++) {
+                const target = targetPoints[i].clone().multiplyScalar(scale);
+                pos[i * 3] += (target.x - pos[i * 3]) * lerpFactor;
+                pos[i * 3 + 1] += (target.y - pos[i * 3 + 1]) * lerpFactor;
+                pos[i * 3 + 2] += (target.z - pos[i * 3 + 2]) * lerpFactor;
+
+                // 星空轻微漂移
+                if (currentGesture === 0) {
+                    pos[i * 3] += velocities[i * 3];
+                    pos[i * 3 + 1] += velocities[i * 3 + 1];
+                    pos[i * 3 + 2] += velocities[i * 3 + 2];
+                    if (Math.abs(pos[i * 3]) > 100) velocities[i * 3] *= -1;
+                    if (Math.abs(pos[i * 3 + 1]) > 100) velocities[i * 3 + 1] *= -1;
+                    if (Math.abs(pos[i * 3 + 2]) > 100) velocities[i * 3 + 2] *= -1;
+                }
+            }
+            geometry.attributes.position.needsUpdate = true;
         }
-      }
 
-      // 双手距离 -> 控制 expansionFactor
-      if (lastHands.length >= 2) {
-        // 使用两个手腕之间的距离作为张合度
-        const w0 = lastHands[0][0]; // wrist (landmark 0)
-        const w1 = lastHands[1][0];
-        const dx = w0.x - w1.x;
-        const dy = w0.y - w1.y;
-        const dz = (w0.z || 0) - (w1.z || 0);
-        const dist = Math.sqrt(dx*dx + dy*dy + dz*dz); // normalized 0.. ~0.6
-        // 映射到扩散因子，调节参数
-        const mapped = (dist - 0.06) * 6.0; // tweak
-        expansionFactor = Math.min(Math.max(mapped, -0.8), 2.5);
-      } else if (lastHands.length === 1) {
-        // 单手张合：用拇指与食指距离估计开合
-        const lm = lastHands[0];
-        const t4 = lm[4], t8 = lm[8];
-        const dx = t4.x - t8.x, dy = t4.y - t8.y;
-        const dist = Math.sqrt(dx*dx + dy*dy);
-        const mapped = (dist - 0.03) * 8.0;
-        expansionFactor = Math.min(Math.max(mapped, -0.8), 2.5);
-      } else {
-        // 未检测到手，慢慢回到中性
-        expansionFactor *= 0.96;
-      }
+        // MediaPipe Hands
+        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+        hands.setOptions({
+            maxNumHands: 2,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+        hands.onResults(onResults);
 
-      // optional: show nav info
-      // console.log('hands', lastHands.length, 'gest', gestureCount, 'exp', expansionFactor.toFixed(2));
-    }
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await hands.send({image: videoElement});
+            },
+            width: 640,
+            height: 480
+        });
+        camera.start();
 
-    // 初始文字为云态
-    setParticlesToCloud(1.0);
+        function onResults(results) {
+            if (results.multiHandLandmarks) {
+                let gesture = 0;
+                let openness = 0;
 
-    // ------------- 动画循环：平滑更新粒子位置 -------------
-    const posAttr = geometry.getAttribute('position');
+                results.multiHandLandmarks.forEach((landmarks, handIndex) => {
+                    // 手指张开度（拇指到小指距离）
+                    const thumb = landmarks[4]; // 拇指尖
+                    const pinky = landmarks[20]; // 小指尖
+                    const handOpenness = Math.sqrt(
+                        Math.pow(thumb.x - pinky.x, 2) + Math.pow(thumb.y - pinky.y, 2)
+                    );
+                    openness += handOpenness;
 
-    function animate() {
-      requestAnimationFrame(animate);
+                    // 手势检测（简化：基于手指伸直计数）
+                    let fingerCount = 0;
+                    const fingers = [
+                        { tip: 8, pip: 6 }, // 食指
+                        { tip: 12, pip: 10 }, // 中指
+                        { tip: 16, pip: 14 }, // 无名指
+                        { tip: 20, pip: 18 }  // 小指
+                    ];
+                    fingers.forEach(f => {
+                        if (landmarks[f.tip].y < landmarks[f.pip].y) fingerCount++; // 伸直判断
+                    });
+                    // 拇指：x > wrist x
+                    if (landmarks[4].x > landmarks[0].x) fingerCount++;
 
-      // 更新目标位置根据 expansionFactor（拉伸/收缩）
-      // 当 expansionFactor > 1 时，整体乘以 scale >1，反之收缩
-      const globalScale = 1 + Math.max(0, expansionFactor); // >1 expands
-      const contractScale = 1 + Math.min(0, expansionFactor); // <1 contracts (but keep >0)
-      // We'll mix: if expansionFactor positive -> expand text/cloud outwards
-      // if negative -> scale towards center
-      for (let i=0;i<PARTICLE_COUNT;i++){
-        const j = 3*i;
-        // 如果当前 target 是文本点附近（我们没有标识），但对所有 target 应用 global scale about center
-        // 将 target 缩放或扩展（以原点为中心）
-        // 我们只想在动画时影响当前 positions'运动速度：使用 scale when computing lerp target
-        const tx = particleTargetPositions[j] * (expansionFactor >= 0 ? globalScale : contractScale);
-        const ty = particleTargetPositions[j+1] * (expansionFactor >= 0 ? globalScale : contractScale);
-        const tz = particleTargetPositions[j+2] * (expansionFactor >= 0 ? globalScale : contractScale);
+                    if (fingerCount === 1) gesture = Math.max(gesture, 1);
+                    else if (fingerCount === 2) gesture = Math.max(gesture, 2);
+                    else if (fingerCount >= 3) gesture = Math.max(gesture, 3);
+                });
 
-        // 速度/阻尼式平滑
-        const k = 0.09 + Math.min(Math.max(Math.abs(expansionFactor)*0.03, 0), 0.12); // 动态插值速率
-        // position += (target - position) * k
-        const px = particlePositions[j];
-        const py = particlePositions[j+1];
-        const pz = particlePositions[j+2];
+                if (gesture !== currentGesture) {
+                    currentGesture = gesture;
+                    if (gesture > 0) targetPoints = texts[gesture];
+                }
 
-        const nx = px + (tx - px) * k;
-        const ny = py + (ty - py) * k;
-        const nz = pz + (tz - pz) * k;
+                // 张合：平均张开度映射到scale 0.5-2.0
+                scale = 0.5 + (openness / 2) * 1.5; // 假设最大openness~0.5
+                scale = Math.max(0.5, Math.min(2.0, scale));
+            }
+        }
 
-        particlePositions[j] = nx;
-        particlePositions[j+1] = ny;
-        particlePositions[j+2] = nz;
-      }
+        // 渲染循环
+        function animate() {
+            requestAnimationFrame(animate);
+            updateParticles();
+            particles.rotation.y += 0.001;
+            camera.position.z = 50 + Math.sin(Date.now() * 0.001) * 5; // 轻微相机运动
+            renderer.render(scene, camera);
+        }
+        animate();
 
-      // 更新 BufferGeometry 属性并渲染
-      posAttr.needsUpdate = true;
-
-      // 让摄像机做小幅环绕，视觉更动感（可注释）
-      const t = Date.now() * 0.0002;
-      camera.position.x = Math.cos(t) * 600 * 0.9;
-      camera.position.z = Math.sin(t) * 600 * 0.9;
-      camera.lookAt(0,0,0);
-
-      renderer.render(scene, camera);
-    }
-
-    animate();
-
-    // 初始状态提示
-    statusEl.innerText = '运行中：请把手放入摄像头画面（允许摄像头权限）。';
-
-    // ------------- 额外快捷键（可选） -------------
-    window.addEventListener('keydown', (e) => {
-      if (e.key === '1') { currentGesture = 1; updateTextByGesture(1); }
-      if (e.key === '2') { currentGesture = 2; updateTextByGesture(2); }
-      if (e.key === '3') { currentGesture = 3; updateTextByGesture(3); }
-      if (e.key === '0') { currentGesture = 0; updateTextByGesture(0); }
-    });
-
-  })();
-  </script>
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
 </body>
 </html>
