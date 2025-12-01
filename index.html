@@ -9,11 +9,13 @@
         canvas { display: block; }
         #video { position: absolute; top: 0; left: 0; width: 320px; height: 240px; opacity: 0.3; z-index: 1; }
         #error { position: absolute; top: 10px; right: 10px; color: red; z-index: 2; font-family: Arial; }
+        #debug { position: absolute; bottom: 10px; left: 10px; color: white; z-index: 2; font-family: Arial; font-size: 12px; }
     </style>
 </head>
 <body>
     <video id="video" autoplay muted playsinline></video>
     <div id="error"></div>
+    <div id="debug"></div>
     <canvas id="canvas"></canvas>
 
     <script src="https://unpkg.com/three@0.158.0/build/three.min.js"></script>
@@ -25,35 +27,50 @@
     <script>
         const videoElement = document.getElementById('video');
         const errorDiv = document.getElementById('error');
+        const debugDiv = document.getElementById('debug');
         const canvasElement = document.getElementById('canvas');
-        const renderer = new THREE.WebGLRenderer({ canvas: canvasElement, antialias: true }); // 改名为renderer，避免拼写错误
+
+        // WebGL检查
+        if (!window.WebGLRenderingContext || !canvasElement.getContext('webgl')) {
+            errorDiv.textContent = 'WebGL不支持！试试更新Chrome或用Firefox。';
+        }
+
+        const renderer = new THREE.WebGLRenderer({ 
+            canvas: canvasElement, 
+            antialias: false, // 安卓关抗锯齿，提升性能
+            powerPreference: 'high-performance' // 优先高性能GPU
+        });
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setClearColor(0x000011);
+        renderer.setClearColor(0xff0000); // 临时红色背景，测试渲染（正常后改0x000011）
 
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.z = 50;
+        camera.position.z = 30; // 拉近相机，更易见粒子
 
-        // 粒子数量
-        const particleCount = 5000;
+        // 加环境光（稳固渲染）
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambientLight);
+
+        // 粒子数量（安卓减到3000防卡）
+        const particleCount = 3000;
         const positions = new Float32Array(particleCount * 3);
         const velocities = new Float32Array(particleCount * 3);
         const geometry = new THREE.BufferGeometry();
         const material = new THREE.PointsMaterial({
-            color: 0xffffff,
-            size: 0.5,
+            color: 0x00ff00, // 临时绿色粒子，超明显（正常后改0xffffff）
+            size: 3.0, // 加大size，安卓可见
             transparent: true,
-            opacity: 0.8,
+            opacity: 1.0, // 全不透明
             blending: THREE.AdditiveBlending
         });
         const particles = new THREE.Points(geometry, material);
         scene.add(particles);
 
-        // 初始化粒子为星空
+        // 初始化粒子为星空（拉近范围）
         for (let i = 0; i < particleCount; i++) {
-            positions[i * 3] = (Math.random() - 0.5) * 200;
-            positions[i * 3 + 1] = (Math.random() - 0.5) * 200;
-            positions[i * 3 + 2] = (Math.random() - 0.5) * 200;
+            positions[i * 3] = (Math.random() - 0.5) * 100; // 缩小范围
+            positions[i * 3 + 1] = (Math.random() - 0.5) * 100;
+            positions[i * 3 + 2] = (Math.random() - 0.5) * 100;
             velocities[i * 3] = (Math.random() - 0.5) * 0.1;
             velocities[i * 3 + 1] = (Math.random() - 0.5) * 0.1;
             velocities[i * 3 + 2] = (Math.random() - 0.5) * 0.1;
@@ -111,9 +128,9 @@
                     pos[i * 3] += velocities[i * 3];
                     pos[i * 3 + 1] += velocities[i * 3 + 1];
                     pos[i * 3 + 2] += velocities[i * 3 + 2];
-                    if (Math.abs(pos[i * 3]) > 100) velocities[i * 3] *= -1;
-                    if (Math.abs(pos[i * 3 + 1]) > 100) velocities[i * 3 + 1] *= -1;
-                    if (Math.abs(pos[i * 3 + 2]) > 100) velocities[i * 3 + 2] *= -1;
+                    if (Math.abs(pos[i * 3]) > 50) velocities[i * 3] *= -1;
+                    if (Math.abs(pos[i * 3 + 1]) > 50) velocities[i * 3 + 1] *= -1;
+                    if (Math.abs(pos[i * 3 + 2]) > 50) velocities[i * 3 + 2] *= -1;
                 }
             }
             geometry.attributes.position.needsUpdate = true;
@@ -217,13 +234,18 @@
         // 页面加载后立即初始化
         window.addEventListener('load', initCamera);
 
-        // 渲染循环
+        // 渲染循环（加调试日志）
         function animate() {
             requestAnimationFrame(animate);
             updateParticles();
             particles.rotation.y += 0.001;
-            camera.position.z = 50 + Math.sin(Date.now() * 0.001) * 5; // 轻微相机运动
+            camera.position.z = 30 + Math.sin(Date.now() * 0.001) * 5; // 轻微相机运动
             renderer.render(scene, camera);
+            // 调试：每秒log一次渲染info
+            if (Date.now() % 1000 < 16) {
+                console.log('渲染中... 绘制调用:', renderer.info.render.calls);
+                debugDiv.textContent = `粒子: \( {particleCount} | 帧率: ~60 | WebGL: \){renderer.capabilities.isWebGL2 ? '2' : '1'}`;
+            }
         }
         animate();
 
